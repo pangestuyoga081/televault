@@ -1046,6 +1046,6 @@ def delete_media_item(unique_key: str):
 
 if __name__ == "__main__":
     broadcast_log("Universal Multi-Channel Hub Siap!", "success")
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8080))
     print(f"🚀 TeleVault Server aktif di port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("server:app", host="0.0.0.0", port=port, proxy_headers=True, forwarded_allow_ips="*")
