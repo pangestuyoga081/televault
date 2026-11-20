@@ -603,6 +603,7 @@ def get_post_videos(unique_key: str):
     video_urls = item.get("video_urls", [])
     resolved_cache = item.get("resolved_cache", {})
     direct_tg = item.get("direct_tg_video")
+    cloud_files = item.get("telegram_cloud_files", {})
     result = []
 
     # 1. Jika postingan memiliki video Telegram langsung (misal KESUKAAN PARA LELAKI)
@@ -611,12 +612,13 @@ def get_post_videos(unique_key: str):
         t_name = clean_filename(os.path.splitext(orig_fn)[0])
         fn = f"{t_name}.mp4"
         is_local = fn in local_files
+        is_in_cloud = fn in cloud_files or bool(direct_tg)
         sz = local_files.get(fn) or direct_tg.get("size_str", "Telegram Cloud")
         result.append({
             "name": t_name or item.get("title", f"Video #{post_id}"),
             "filename": fn,
             "thumbnail": item.get("thumbnail"),
-            "is_local": is_local,
+            "is_local": is_local or is_in_cloud,
             "size_str": sz,
             "play_url": f"/stream/{ch_id}/{post_id}/{fn}",
             "url": f"tg://{ch_id}/{post_id}",
@@ -640,13 +642,14 @@ def get_post_videos(unique_key: str):
                 title = clean_filename(r_item.get("title", f"part_{idx+1}"))
                 fname = f"{title}.mp4"
                 is_local = fname in local_files
+                is_in_cloud = fname in cloud_files
                 sz_str = local_files.get(fname) or r_item.get("size_str", "Cloud")
                 
                 result.append({
                     "name": title,
                     "filename": fname,
                     "thumbnail": r_item.get("thumbnail") or item.get("thumbnail"),
-                    "is_local": is_local,
+                    "is_local": is_local or is_in_cloud,
                     "size_str": sz_str,
                     "play_url": f"/stream/{ch_id}/{post_id}/{fname}",
                     "url": u,
@@ -749,7 +752,36 @@ def stream_video(channel_id: str, post_id: int, filename: str, request: Request)
 
         return asyncio.run(stream_tg_video())
 
-    # 3. Jika belum ada di lokal, cari resolved stream URL dari cloud
+    # 3. Jika file sudah ada di Telegram Cloud Database (-1004423804448)
+    telegram_db_id = -1004423804448
+    if item and "telegram_cloud_files" in item and filename in item["telegram_cloud_files"]:
+        cloud_info = item["telegram_cloud_files"][filename]
+        db_msg_id = cloud_info.get("msg_id")
+        if db_msg_id:
+            async def stream_tg_db_video():
+                client = await get_telegram_client()
+                if not client:
+                    return JSONResponse(status_code=500, content={"error": "Telegram Client offline"})
+                try:
+                    db_msg = await client.get_messages(telegram_db_id, ids=db_msg_id)
+                    if db_msg and db_msg.video:
+                        async def tg_db_generator():
+                            async for chunk in client.iter_download(db_msg.video, chunk_size=128 * 1024):
+                                yield chunk
+                        resp_headers = {
+                            "Content-Type": "video/mp4",
+                            "Accept-Ranges": "bytes",
+                            "Access-Control-Allow-Origin": "*",
+                            "Content-Length": str(db_msg.file.size if db_msg.file else 0)
+                        }
+                        return StreamingResponse(tg_db_generator(), status_code=200, headers=resp_headers)
+                except Exception as e:
+                    print(f"Gagal stream dari DB Cloud Telegram: {e}")
+            
+            res_stream = asyncio.run(stream_tg_db_video())
+            if res_stream: return res_stream
+
+    # 4. Jika belum ada di lokal maupun DB Cloud, cari resolved stream URL dari cloud luar
     target_item = None
     if item:
         resolved_cache = item.get("resolved_cache", {})
