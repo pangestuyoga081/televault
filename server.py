@@ -82,7 +82,6 @@ ssl_ctx.verify_mode = ssl.CERT_NONE
 
 app = FastAPI(title="Universal Telegram & Cloud Archiver")
 app.mount("/thumbnails", StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
-app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 executor = ThreadPoolExecutor(max_workers=8)
 LOGS = []
