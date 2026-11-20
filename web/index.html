@@ -63,14 +63,28 @@
 
     /* Video Player & Glassmorphism */
     .glass-panel {
-      background: rgba(17, 22, 34, 0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.07);
+      background: #111622;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      contain: content;
     }
     .glass-hover:hover {
-      background: rgba(22, 29, 45, 0.95);
-      border-color: rgba(99, 102, 241, 0.3);
+      background: #161d2d;
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    /* Hardware Accelerated Scrolling & GPU rendering */
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+    #mediaGrid {
+      contain: layout style paint;
+      will-change: transform;
+    }
+    .media-card {
+      content-visibility: auto;
+      contain-intrinsic-size: 260px 380px;
+      transform: translateZ(0);
+      backface-visibility: hidden;
     }
 
     /* Range slider custom styling */
@@ -838,14 +852,14 @@
       const thumbSrc = item.thumbnail || (item.media_type === 'photo' ? item.media_url : 'https://placehold.co/400x550/111622/4f46e5?text=No+Preview');
       const hasVideos = item.video_urls && item.video_urls.length > 0;
 
-      card.className = `glass-panel rounded-2xl overflow-hidden group hover:border-accent/50 transition-all duration-200 flex flex-col relative cursor-pointer ${isSelected ? 'ring-2 ring-accent' : ''}`;
+      card.className = `media-card glass-panel rounded-2xl overflow-hidden group hover:border-accent/50 transition-colors duration-150 flex flex-col relative cursor-pointer ${isSelected ? 'ring-2 ring-accent' : ''}`;
       
       card.innerHTML = `
         <div class="relative w-full aspect-[3/4] bg-surface-950 overflow-hidden">
-          <img src="${thumbSrc}" loading="lazy" decoding="async" alt="Poster" class="w-full h-full object-cover group-hover:scale-105 transition duration-300 cursor-pointer" onclick="openMediaDetail('${item.unique_key}')">
+          <img src="${thumbSrc}" loading="lazy" decoding="async" alt="Poster" class="w-full h-full object-cover cursor-pointer" onclick="openMediaDetail('${item.unique_key}')">
           
           <!-- Gradient Overlay -->
-          <div class="absolute inset-0 bg-gradient-to-t from-surface-950 via-transparent to-black/40 opacity-60 group-hover:opacity-40 transition pointer-events-none"></div>
+          <div class="absolute inset-0 bg-gradient-to-t from-surface-950 via-transparent to-black/40 opacity-50 pointer-events-none"></div>
 
           <!-- Top Badges -->
           <div class="absolute top-2 left-2 flex items-center gap-1 z-10">
