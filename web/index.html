@@ -166,6 +166,12 @@
         </div>
         <span id="badge-video-count" class="text-[10px] bg-surface-700 text-gray-400 font-mono px-1.5 py-0.5 rounded-md">0</span>
       </button>
+      <button onclick="switchView('saved_cloud')" id="nav-saved_cloud" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-surface-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-cloud-check w-4 text-center text-emerald-400"></i> Tersimpan Cloud
+        </div>
+        <span id="badge-cloud-count" class="text-[10px] bg-emerald-500/20 text-emerald-400 font-mono px-1.5 py-0.5 rounded-md font-bold">0</span>
+      </button>
       <button onclick="switchView('photos')" id="nav-photos" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-surface-800/80 transition">
         <div class="flex items-center gap-3">
           <i class="fa-solid fa-image w-4 text-center text-emerald-400"></i> Photos & Teasers
@@ -786,17 +792,21 @@
 
       let videoCount = 0;
       let photoCount = 0;
+      let cloudSavedCount = 0;
 
       Object.entries(fullCatalog).forEach(([key, item]) => {
         const hasVideos = (item.video_urls && item.video_urls.length > 0);
+        const isCloudSaved = Boolean(item.is_downloaded || (item.telegram_cloud_files && Object.keys(item.telegram_cloud_files).length > 0) || item.direct_tg_video);
         if (hasVideos) videoCount++;
         if (item.thumbnail || item.media_type === 'photo') photoCount++;
+        if (isCloudSaved) cloudSavedCount++;
 
         // Channel filter
         if (activeChannelFilter && String(item.channel_id) !== String(activeChannelFilter)) return;
 
         // View Type Filter
         if (currentView === 'videos' && !hasVideos) return;
+        if (currentView === 'saved_cloud' && !isCloudSaved) return;
         if (currentView === 'photos' && item.media_type !== 'photo') return;
         if (currentView === 'favorites' && !favorites.has(key)) return;
 
@@ -814,6 +824,8 @@
       document.getElementById('badge-all-count').innerText = Object.keys(fullCatalog).length;
       document.getElementById('badge-video-count').innerText = videoCount;
       document.getElementById('badge-photo-count').innerText = photoCount;
+      const cloudBadge = document.getElementById('badge-cloud-count');
+      if (cloudBadge) cloudBadge.innerText = cloudSavedCount;
 
       currentRenderLimit = 36;
       renderMediaGrid();
@@ -1543,6 +1555,7 @@
       const titleMap = {
         'all': 'Semua Media Tersimpan',
         'videos': 'Koleksi Video Streaming',
+        'saved_cloud': 'Tersimpan di Telegram Database Cloud',
         'photos': 'Ilustrasi & Foto Teaser',
         'favorites': 'Media Favorit Pilihan',
         'continue': 'Riwayat Terakhir Ditonton'
