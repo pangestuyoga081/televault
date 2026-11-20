@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# Install ffmpeg & system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
@@ -13,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8000
+RUN chmod +x entrypoint.sh
 
-# Jalankan crawler di background lalu start server
-CMD python -u full_crawler.py & python server.py
+CMD ["/bin/bash", "entrypoint.sh"]
