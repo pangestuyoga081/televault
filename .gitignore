@@ -1,0 +1,20 @@
+# Python environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Credentials & Telegram Sessions (SANGAT PENTING: JANGAN DIUPLOAD KE GITHUB)
+*.session
+*.session-journal
+string_session.txt
+
+# Media & Database lokal berukuran besar
+*.mp4
+*.part
+Drama CRT/
+KESUKAAN PARA LELAKI X SEKTORPLAY88/
+media_illustrasi/
+thumbnails/
+*.log
