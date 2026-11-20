@@ -270,9 +270,17 @@ async def full_crawler_and_downloader():
             video_urls = extract_video_urls(text)
             has_tg_video = bool(msg.video)
 
-            # Jika tidak ada link video DAN tidak ada attachment video Telegram langsung, skip
-            if not video_urls and not has_tg_video:
-                continue
+            # Khusus Saluran KESUKAAN PARA LELAKI (-1004485856967):
+            # Hanya terima postingan yang MURNI memiliki attachment video Telegram native.
+            # Semua pesan teks/link/promosi di-skip total.
+            if str(target_ch_id) == "-1004485856967":
+                if not has_tg_video:
+                    continue
+                video_urls = [] # Abaikan link teks eksternal sama sekali
+            else:
+                # Saluran Drama CRT: butuh link video atau attachment video
+                if not video_urls and not has_tg_video:
+                    continue
 
             # Tentukan judul post
             title = ""
