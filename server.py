@@ -1062,9 +1062,20 @@ def save_playback_progress(payload: dict):
     unique_key = payload.get("unique_key")
     title = payload.get("title", "Video")
     play_url = payload.get("play_url", "")
-    current_time = float(payload.get("current_time", 0))
-    duration = float(payload.get("duration", 1))
-    pct = round((current_time / duration) * 100, 1) if duration > 0 else 0
+    
+    try:
+        raw_cur = payload.get("current_time")
+        current_time = float(raw_cur) if raw_cur is not None else 0.0
+    except (ValueError, TypeError):
+        current_time = 0.0
+        
+    try:
+        raw_dur = payload.get("duration")
+        duration = float(raw_dur) if raw_dur is not None else 1.0
+    except (ValueError, TypeError):
+        duration = 1.0
+
+    pct = round((current_time / duration) * 100, 1) if duration > 0 else 0.0
 
     conn = get_db()
     conn.execute("""
