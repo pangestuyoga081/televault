@@ -1045,18 +1045,7 @@ def delete_media_item(unique_key: str):
     return {"success": True, "message": f"Post #{post_id} berhasil dihapus"}
 
 if __name__ == "__main__":
-    import pycloudflared
-    try:
-        tunnel = pycloudflared.try_cloudflare(8000)
-        public_url = tunnel.tunnel
-        print(f"\n" + "="*60)
-        print(f"🔥 CLOUD PUBLIC URL (Bisa diakses dari HP / Internet Luar):")
-        print(f"👉 {public_url}")
-        print(f"="*60 + "\n")
-        broadcast_log(f"Cloud Tunnel Aktif! Akses dari HP: {public_url}", "success")
-    except Exception as e:
-        print(f"Cloudflare Tunnel Error: {e}")
-
     broadcast_log("Universal Multi-Channel Hub Siap!", "success")
     port = int(os.environ.get("PORT", 8000))
+    print(f"🚀 TeleVault Server aktif di port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
