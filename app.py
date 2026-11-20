@@ -10,6 +10,17 @@ try:
 except Exception as e:
     print(f"Crawler background note: {e}")
 
+import os
+import subprocess
+import gradio as gr
+from server import app as fastapi_app
+
+# Start crawler di background jika belum berjalan
+try:
+    subprocess.Popen(["python", "full_crawler.py"])
+except Exception as e:
+    print(f"Crawler background note: {e}")
+
 # Mount TeleVault ke Gradio Blocks
 with gr.Blocks(title="TeleVault Cloud") as demo:
     gr.HTML("""
@@ -17,9 +28,7 @@ with gr.Blocks(title="TeleVault Cloud") as demo:
     </iframe>
     """)
 
-# Jalankan Gradio yang terhubung dengan FastAPI Server TeleVault
+# Gradio default launch di Hugging Face Spaces (port 7860)
 app = gr.mount_gradio_app(fastapi_app, demo, path="/")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+demo.launch(server_name="0.0.0.0", server_port=7860, app_kwargs={"docs_url": "/docs"})
