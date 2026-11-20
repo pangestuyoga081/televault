@@ -22,6 +22,11 @@ MEDIA_DIR = os.path.join(BASE_DIR, "media_illustrasi")
 WEB_DIR = os.path.join(BASE_DIR, "web")
 DB_FILE = os.path.join(BASE_DIR, "televault.db")
 
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 def init_sqlite_tables():
     conn = get_db()
     conn.execute("""
@@ -65,11 +70,6 @@ def init_sqlite_tables():
     conn.close()
 
 init_sqlite_tables()
-
-def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 os.makedirs(MEDIA_DIR, exist_ok=True)
