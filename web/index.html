@@ -1158,10 +1158,26 @@
     }
 
     // 7. CUSTOM CINEMA VIDEO PLAYER
+    let playRetryCount = 0;
     function launchPlayer(url, title, videoId, uniqueKey, startTime = 0) {
       currentVideoPlaying = { url, title, videoId, uniqueKey };
+      playRetryCount = 0;
       document.getElementById('playerModalTitle').innerText = title;
       document.getElementById('playerErrorBanner').classList.add('hidden');
+      document.getElementById('playerBuffering').classList.remove('hidden');
+
+      // Hook tombol fallback download
+      const dlBtn = document.getElementById('playerDownloadFallbackBtn');
+      if (dlBtn) {
+        dlBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${title}.mp4`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        };
+      }
 
       coreVideo.src = url;
       coreVideo.currentTime = startTime;
@@ -1169,8 +1185,8 @@
       playerModal.classList.remove('hidden');
       playerModal.classList.add('flex');
       
-      coreVideo.play().catch(() => {
-        document.getElementById('playerErrorBanner').classList.remove('hidden');
+      coreVideo.play().catch((err) => {
+        console.warn("Autoplay ditolak atau butuh klik manual:", err);
       });
     }
 
@@ -1189,6 +1205,7 @@
       });
 
       coreVideo.addEventListener('play', () => {
+        document.getElementById('playerErrorBanner').classList.add('hidden');
         document.getElementById('bottomPlayIcon').className = 'fa-solid fa-pause';
         document.getElementById('centerPlayIcon').className = 'fa-solid fa-pause';
       });
@@ -1200,8 +1217,24 @@
       });
 
       coreVideo.addEventListener('waiting', () => document.getElementById('playerBuffering').classList.remove('hidden'));
-      coreVideo.addEventListener('playing', () => document.getElementById('playerBuffering').classList.add('hidden'));
-      coreVideo.addEventListener('error', () => document.getElementById('playerErrorBanner').classList.remove('hidden'));
+      coreVideo.addEventListener('canplay', () => document.getElementById('playerBuffering').classList.add('hidden'));
+      coreVideo.addEventListener('playing', () => {
+        document.getElementById('playerBuffering').classList.add('hidden');
+        document.getElementById('playerErrorBanner').classList.add('hidden');
+      });
+      coreVideo.addEventListener('error', (e) => {
+        document.getElementById('playerBuffering').classList.add('hidden');
+        if (playRetryCount < 1 && currentVideoPlaying && currentVideoPlaying.url) {
+          playRetryCount++;
+          console.log("Mencoba stream ulang...");
+          setTimeout(() => {
+            coreVideo.load();
+            coreVideo.play().catch(() => {});
+          }, 800);
+        } else {
+          document.getElementById('playerErrorBanner').classList.remove('hidden');
+        }
+      });
     }
 
     async function savePlayback(currentTime, duration) {

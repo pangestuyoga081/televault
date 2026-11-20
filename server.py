@@ -464,6 +464,7 @@ def resolve_universal(url):
         if r: return [r]
         return resolve_vski_or_filecoster(url)
 
+# ================= TELEGRAM CLIENT HELPER =================
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -472,10 +473,21 @@ API_HASH = "d26a371b77634346b594c88c5dfe635f"
 STRING_SESSION_FILE = os.path.join(BASE_DIR, "string_session.txt")
 
 tg_client_instance = None
+
 async def get_telegram_client():
     global tg_client_instance
-    if tg_client_instance and tg_client_instance.is_connected():
-        return tg_client_instance
+    current_loop = asyncio.get_running_loop()
+    
+    if tg_client_instance:
+        if tg_client_instance.is_connected() and tg_client_instance.loop is current_loop:
+            return tg_client_instance
+        else:
+            try:
+                await tg_client_instance.disconnect()
+            except Exception:
+                pass
+            tg_client_instance = None
+
     session_str = os.environ.get("STRING_SESSION")
     if not session_str and os.path.exists(STRING_SESSION_FILE):
         try:
@@ -486,7 +498,7 @@ async def get_telegram_client():
     if not session_str:
         return None
     try:
-        tg_client_instance = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+        tg_client_instance = TelegramClient(StringSession(session_str), API_ID, API_HASH, loop=current_loop)
         await tg_client_instance.connect()
         return tg_client_instance
     except Exception as e:
@@ -508,13 +520,13 @@ async def get_media_file(filename: str):
         client = await get_telegram_client()
         if client:
             try:
-                ent = await client.get_entity(ch_id)
-                tg_msg = await client.get_messages(ent, ids=msg_id)
+                # Menggunakan entity peer terdaftar
+                tg_msg = await client.get_messages(ch_id, ids=msg_id)
                 if tg_msg:
                     media_obj = tg_msg.photo or tg_msg.video
                     if media_obj:
                         await client.download_media(media_obj, file=file_p, thumb=-1 if tg_msg.video else None)
-                        if os.path.exists(file_p) and os.path.getsize(file_p) > 1000:
+                        if os.path.exists(file_p) and os.path.getsize(file_p) > 500:
                             return FileResponse(file_p)
             except Exception as e:
                 print(f"Gagal unduh on-demand media {filename}: {e}")
@@ -667,7 +679,7 @@ def get_post_videos(unique_key: str):
     return {"videos": result}
 
 @app.get("/stream/{channel_id}/{post_id}/{filename}")
-def stream_video(channel_id: str, post_id: int, filename: str, request: Request):
+async def stream_video(channel_id: str, post_id: int, filename: str, request: Request):
     cat = load_catalog()
     ch_map = get_channel_map()
     ch_name = ch_map.get(str(channel_id), "Drama CRT")
@@ -720,34 +732,54 @@ def stream_video(channel_id: str, post_id: int, filename: str, request: Request)
         }
         return StreamingResponse(local_file_iter(), status_code=status_code, headers=resp_headers)
 
-    # 2. Jika file Telegram langsung (misal KESUKAAN PARA LELAKI) dan belum selesai diunduh
+    # 2. Jika file Telegram langsung (misal KESUKAAN PARA LELAKI)
     if item and item.get("direct_tg_video"):
-        dtg = item["direct_tg_video"]
-        async def stream_tg_video():
-            client = await get_telegram_client()
-            if not client:
-                return JSONResponse(status_code=500, content={"error": "Telegram Client offline"})
-            try:
-                tg_msg = await client.get_messages(int(channel_id), ids=post_id)
-                if not tg_msg or not tg_msg.video:
-                    return JSONResponse(status_code=404, content={"error": "Video Telegram tidak ditemukan"})
-                
-                # Streaming generator langsung dari chunk media Telegram
-                async def tg_chunk_generator():
-                    async for chunk in client.iter_download(tg_msg.video, chunk_size=128 * 1024):
-                        yield chunk
+        client = await get_telegram_client()
+        if not client:
+            return JSONResponse(status_code=500, content={"error": "Telegram Client offline"})
+        try:
+            tg_msg = await client.get_messages(int(channel_id), ids=post_id)
+            if not tg_msg or not tg_msg.video:
+                return JSONResponse(status_code=404, content={"error": "Video Telegram tidak ditemukan"})
+            
+            total_size = tg_msg.file.size if tg_msg.file else (item["direct_tg_video"].get("size", 0))
+            start = 0
+            end = total_size - 1
+            status_code = 200
 
-                resp_headers = {
-                    "Content-Type": "video/mp4",
-                    "Accept-Ranges": "bytes",
-                    "Access-Control-Allow-Origin": "*",
-                    "Content-Length": str(dtg.get("size", tg_msg.file.size if tg_msg.file else 0))
-                }
-                return StreamingResponse(tg_chunk_generator(), status_code=200, headers=resp_headers)
-            except Exception as e:
-                return JSONResponse(status_code=500, content={"error": f"Gagal stream Telegram: {e}"})
+            if range_header and range_header.startswith("bytes="):
+                status_code = 206
+                byte_range = range_header.replace("bytes=", "").split("-")
+                start = int(byte_range[0]) if byte_range[0] else 0
+                end = int(byte_range[1]) if (len(byte_range) > 1 and byte_range[1]) else total_size - 1
+                if end >= total_size: end = total_size - 1
 
-        return asyncio.run(stream_tg_video())
+            content_length = (end - start) + 1 if total_size > 0 else None
+
+            async def tg_chunk_generator():
+                bytes_left = content_length
+                async for chunk in client.iter_download(tg_msg.video, offset=start, chunk_size=256 * 1024):
+                    if bytes_left is not None:
+                        if len(chunk) > bytes_left:
+                            yield chunk[:bytes_left]
+                            break
+                        bytes_left -= len(chunk)
+                    yield chunk
+                    if bytes_left is not None and bytes_left <= 0:
+                        break
+
+            resp_headers = {
+                "Content-Type": "video/mp4",
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*",
+            }
+            if total_size > 0:
+                resp_headers["Content-Length"] = str(content_length)
+                resp_headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+
+            return StreamingResponse(tg_chunk_generator(), status_code=status_code, headers=resp_headers)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": f"Gagal stream Telegram: {e}"})
 
     # 3. Jika file sudah ada di Telegram Cloud Database (-1004423804448)
     telegram_db_id = -1004423804448
@@ -755,28 +787,49 @@ def stream_video(channel_id: str, post_id: int, filename: str, request: Request)
         cloud_info = item["telegram_cloud_files"][filename]
         db_msg_id = cloud_info.get("msg_id")
         if db_msg_id:
-            async def stream_tg_db_video():
-                client = await get_telegram_client()
-                if not client:
-                    return JSONResponse(status_code=500, content={"error": "Telegram Client offline"})
+            client = await get_telegram_client()
+            if client:
                 try:
                     db_msg = await client.get_messages(telegram_db_id, ids=db_msg_id)
                     if db_msg and db_msg.video:
+                        total_size = db_msg.file.size if db_msg.file else 0
+                        start = 0
+                        end = total_size - 1
+                        status_code = 200
+
+                        if range_header and range_header.startswith("bytes="):
+                            status_code = 206
+                            byte_range = range_header.replace("bytes=", "").split("-")
+                            start = int(byte_range[0]) if byte_range[0] else 0
+                            end = int(byte_range[1]) if (len(byte_range) > 1 and byte_range[1]) else total_size - 1
+                            if end >= total_size: end = total_size - 1
+
+                        content_length = (end - start) + 1 if total_size > 0 else None
+
                         async def tg_db_generator():
-                            async for chunk in client.iter_download(db_msg.video, chunk_size=128 * 1024):
+                            bytes_left = content_length
+                            async for chunk in client.iter_download(db_msg.video, offset=start, chunk_size=256 * 1024):
+                                if bytes_left is not None:
+                                    if len(chunk) > bytes_left:
+                                        yield chunk[:bytes_left]
+                                        break
+                                    bytes_left -= len(chunk)
                                 yield chunk
+                                if bytes_left is not None and bytes_left <= 0:
+                                    break
+
                         resp_headers = {
                             "Content-Type": "video/mp4",
                             "Accept-Ranges": "bytes",
                             "Access-Control-Allow-Origin": "*",
-                            "Content-Length": str(db_msg.file.size if db_msg.file else 0)
                         }
-                        return StreamingResponse(tg_db_generator(), status_code=200, headers=resp_headers)
+                        if total_size > 0:
+                            resp_headers["Content-Length"] = str(content_length)
+                            resp_headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+
+                        return StreamingResponse(tg_db_generator(), status_code=status_code, headers=resp_headers)
                 except Exception as e:
                     print(f"Gagal stream dari DB Cloud Telegram: {e}")
-            
-            res_stream = asyncio.run(stream_tg_db_video())
-            if res_stream: return res_stream
 
     # 4. Jika belum ada di lokal maupun DB Cloud, cari resolved stream URL dari cloud luar
     target_item = None
@@ -862,6 +915,53 @@ def download_single(unique_key: str, filename: str):
     base_title = clean_filename(item.get("title", f"post_{post_id}"))
     post_dir = os.path.join(BASE_DIR, clean_filename(ch_name), f"{post_id}_{base_title}")
     os.makedirs(post_dir, exist_ok=True)
+
+    task_id = f"{post_id}_{filename}"
+    out_f = os.path.join(post_dir, filename if filename.endswith(".mp4") else f"{filename}.mp4")
+
+    # KASUS 1: Jika video langsung dari Telegram (misal KESUKAAN PARA LELAKI)
+    if item.get("direct_tg_video"):
+        def run_tg_dl():
+            session_str = os.environ.get("STRING_SESSION")
+            if not session_str and os.path.exists(STRING_SESSION_FILE):
+                try:
+                    with open(STRING_SESSION_FILE, "r") as f:
+                        session_str = f.read().strip()
+                except Exception: pass
+            if not session_str:
+                broadcast_log("STRING_SESSION tidak tersedia untuk unduh TG", "error")
+                return
+
+            broadcast_log(f"Mulai mengunduh video Telegram ke lokal: {filename}...", "info")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                cl = TelegramClient(StringSession(session_str), API_ID, API_HASH, loop=loop)
+                loop.run_until_complete(cl.connect())
+                tg_msg = loop.run_until_complete(cl.get_messages(int(ch_id), ids=post_id))
+                if tg_msg and tg_msg.video:
+                    temp_f = out_f + ".part"
+                    
+                    def prog_cb(received, total):
+                        pct = round((received / total) * 100, 1) if total else 0
+                        sz_str = f"{received/(1024*1024):.1f}/{total/(1024*1024):.1f} MB" if total else ""
+                        broadcast_progress(task_id, {"name": filename, "percent": pct, "size": sz_str, "done": False})
+
+                    loop.run_until_complete(cl.download_media(tg_msg.video, file=temp_f, progress_callback=prog_cb))
+                    if os.path.exists(temp_f) and os.path.getsize(temp_f) > 50000:
+                        if os.path.exists(out_f): os.remove(out_f)
+                        os.rename(temp_f, out_f)
+                        make_faststart(out_f)
+                        broadcast_progress(task_id, {"name": filename, "percent": 100, "size": "Done", "done": True})
+                        broadcast_log(f"Selesai unduh video Telegram: {filename}", "success")
+                loop.run_until_complete(cl._disconnect())
+            except Exception as e:
+                broadcast_log(f"Gagal unduh video TG {filename}: {e}", "error")
+            finally:
+                loop.close()
+
+        executor.submit(run_tg_dl)
+        return {"success": True, "message": "Download video Telegram dimulai di background"}
     
     target_item = None
     resolved_cache = item.get("resolved_cache", {})
@@ -890,9 +990,6 @@ def download_single(unique_key: str, filename: str):
 
     if not target_item:
         return {"success": False, "error": "Gagal mengurai link streaming/download"}
-
-    task_id = f"{post_id}_{filename}"
-    out_f = os.path.join(post_dir, filename if filename.endswith(".mp4") else f"{filename}.mp4")
 
     def run():
         if target_item.get("type") == "direct_mp4":
@@ -931,6 +1028,14 @@ def download_all(unique_key: str):
     post_dir = os.path.join(BASE_DIR, clean_filename(ch_name), f"{post_id}_{base_title}")
     os.makedirs(post_dir, exist_ok=True)
     
+    # Jika video direct TG
+    if item.get("direct_tg_video"):
+        dtg = item["direct_tg_video"]
+        orig_fn = dtg.get("file_name", f"video_{post_id}.mp4")
+        t_name = clean_filename(os.path.splitext(orig_fn)[0])
+        fn = f"{t_name}.mp4"
+        return download_single(unique_key, fn)
+
     resolved_cache = item.get("resolved_cache", {})
     all_targets = []
     
