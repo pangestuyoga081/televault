@@ -63,6 +63,7 @@ def init_sqlite_tables():
             current_time REAL DEFAULT 0,
             duration REAL DEFAULT 0,
             progress_percent REAL DEFAULT 0,
+            last_played TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -498,11 +499,11 @@ async def get_media_file(filename: str):
         client = await get_telegram_client()
         if client:
             try:
-                tg_msg = await client.get_messages(ch_id, ids=msg_id)
+                ent = await client.get_entity(ch_id)
+                tg_msg = await client.get_messages(ent, ids=msg_id)
                 if tg_msg:
                     media_obj = tg_msg.photo or tg_msg.video
                     if media_obj:
-                        thumb_target = media_obj if tg_msg.photo else None
                         await client.download_media(media_obj, file=file_p, thumb=-1 if tg_msg.video else None)
                         if os.path.exists(file_p) and os.path.getsize(file_p) > 1000:
                             return FileResponse(file_p)
