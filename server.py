@@ -454,6 +454,64 @@ def resolve_universal(url):
         if r: return [r]
         return resolve_vski_or_filecoster(url)
 
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+
+API_ID = 31350452
+API_HASH = "d26a371b77634346b594c88c5dfe635f"
+STRING_SESSION_FILE = os.path.join(BASE_DIR, "string_session.txt")
+
+tg_client_instance = None
+async def get_telegram_client():
+    global tg_client_instance
+    if tg_client_instance and tg_client_instance.is_connected():
+        return tg_client_instance
+    session_str = os.environ.get("STRING_SESSION")
+    if not session_str and os.path.exists(STRING_SESSION_FILE):
+        try:
+            with open(STRING_SESSION_FILE, "r") as f:
+                session_str = f.read().strip()
+        except Exception:
+            pass
+    if not session_str:
+        return None
+    try:
+        tg_client_instance = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+        await tg_client_instance.connect()
+        return tg_client_instance
+    except Exception as e:
+        print(f"Error connect TG in server: {e}")
+        return None
+
+# Route on-demand thumbnail fallback dari Telegram langsung
+@app.get("/media/{filename}")
+async def get_media_file(filename: str):
+    file_p = os.path.join(MEDIA_DIR, filename)
+    if os.path.exists(file_p) and os.path.getsize(file_p) > 1000:
+        return FileResponse(file_p)
+
+    # Parse pola: photo_{channel_id}_{msg_id}.jpg atau thumb_{channel_id}_{msg_id}.jpg
+    m = re.match(r'(?:photo|thumb)_(-?\d+)_(\d+)\.jpg', filename)
+    if m:
+        ch_id = int(m.group(1))
+        msg_id = int(m.group(2))
+        client = await get_telegram_client()
+        if client:
+            try:
+                tg_msg = await client.get_messages(ch_id, ids=msg_id)
+                if tg_msg:
+                    media_obj = tg_msg.photo or tg_msg.video
+                    if media_obj:
+                        thumb_target = media_obj if tg_msg.photo else None
+                        await client.download_media(media_obj, file=file_p, thumb=-1 if tg_msg.video else None)
+                        if os.path.exists(file_p) and os.path.getsize(file_p) > 1000:
+                            return FileResponse(file_p)
+            except Exception as e:
+                print(f"Gagal unduh on-demand media {filename}: {e}")
+
+    # Fallback placeholder jika tidak ditemukan
+    return FileResponse(os.path.join(WEB_DIR, "index.html"), status_code=404)
+
 # ================= API ROUTES =================
 @app.get("/")
 def get_index():
@@ -662,7 +720,36 @@ def stream_video(channel_id: str, post_id: int, filename: str, request: Request)
         }
         return StreamingResponse(local_file_iter(), status_code=status_code, headers=resp_headers)
 
-    # 2. Jika belum ada di lokal, cari resolved stream URL dari cloud
+    # 2. Jika file Telegram langsung (misal KESUKAAN PARA LELAKI) dan belum selesai diunduh
+    if item and item.get("direct_tg_video"):
+        dtg = item["direct_tg_video"]
+        async def stream_tg_video():
+            client = await get_telegram_client()
+            if not client:
+                return JSONResponse(status_code=500, content={"error": "Telegram Client offline"})
+            try:
+                tg_msg = await client.get_messages(int(channel_id), ids=post_id)
+                if not tg_msg or not tg_msg.video:
+                    return JSONResponse(status_code=404, content={"error": "Video Telegram tidak ditemukan"})
+                
+                # Streaming generator langsung dari chunk media Telegram
+                async def tg_chunk_generator():
+                    async for chunk in client.iter_download(tg_msg.video, chunk_size=128 * 1024):
+                        yield chunk
+
+                resp_headers = {
+                    "Content-Type": "video/mp4",
+                    "Accept-Ranges": "bytes",
+                    "Access-Control-Allow-Origin": "*",
+                    "Content-Length": str(dtg.get("size", tg_msg.file.size if tg_msg.file else 0))
+                }
+                return StreamingResponse(tg_chunk_generator(), status_code=200, headers=resp_headers)
+            except Exception as e:
+                return JSONResponse(status_code=500, content={"error": f"Gagal stream Telegram: {e}"})
+
+        return asyncio.run(stream_tg_video())
+
+    # 3. Jika belum ada di lokal, cari resolved stream URL dari cloud
     target_item = None
     if item:
         resolved_cache = item.get("resolved_cache", {})
