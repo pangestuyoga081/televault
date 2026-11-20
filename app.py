@@ -28,4 +28,4 @@ with gr.Blocks(title="TeleVault Cloud") as demo:
     </iframe>
     """)
 
-demo.launch(ssr=False)
+demo.launch()
