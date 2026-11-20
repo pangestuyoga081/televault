@@ -11,7 +11,7 @@ import yt_dlp
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-BASE_DIR = r"d:\JV\Arsip yoga"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CATALOG_FILE = os.path.join(BASE_DIR, "catalog.json")
 MEDIA_DIR = os.path.join(BASE_DIR, "media_illustrasi")
 STRING_SESSION_FILE = os.path.join(BASE_DIR, "string_session.txt")
@@ -227,8 +227,17 @@ def download_hls(url, out_path):
         return False
 
 async def full_crawler_and_downloader():
-    with open(STRING_SESSION_FILE, "r") as f:
-        session_str = f.read().strip()
+    session_str = os.environ.get("STRING_SESSION")
+    if not session_str and os.path.exists(STRING_SESSION_FILE):
+        try:
+            with open(STRING_SESSION_FILE, "r") as f:
+                session_str = f.read().strip()
+        except Exception:
+            pass
+
+    if not session_str:
+        print("[!] STRING_SESSION tidak ditemukan di Environment Secret maupun file lokal.")
+        return
 
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
     await client.connect()

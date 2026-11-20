@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 import uvicorn
 
-BASE_DIR = r"d:\JV\Arsip yoga"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CATALOG_FILE = os.path.join(BASE_DIR, "catalog.json")
 CHANNELS_FILE = os.path.join(BASE_DIR, "all_channels.json")
 THUMBNAILS_DIR = os.path.join(BASE_DIR, "thumbnails")
