@@ -134,13 +134,23 @@ def clean_filename(name):
     clean = re.sub(r'\s+', " ", clean).strip().strip(".")
     return clean[:100] if clean else "video"
 
-def load_catalog():
+# Cache in-memory catalog
+CATALOG_CACHE = None
+LAST_CATALOG_LOAD = 0
+
+def load_catalog(force=False):
+    global CATALOG_CACHE, LAST_CATALOG_LOAD
+    now = time.time()
+    if not force and CATALOG_CACHE is not None and (now - LAST_CATALOG_LOAD < 30):
+        return CATALOG_CACHE
     if os.path.exists(CATALOG_FILE):
         try:
             with open(CATALOG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                CATALOG_CACHE = json.load(f)
+                LAST_CATALOG_LOAD = now
+                return CATALOG_CACHE
         except Exception:
-            return {}
+            return CATALOG_CACHE or {}
     return {}
 
 def save_catalog(catalog):
@@ -545,29 +555,16 @@ def get_channels():
 def get_catalog(channel_id: str = None):
     cat = load_catalog()
     result = {}
-    ch_map = get_channel_map()
 
     for unique_k, item in cat.items():
         item_ch = str(item.get("channel_id", "-1003844911918"))
         if channel_id and channel_id != "all" and item_ch != str(channel_id):
             continue
 
-        ch_name = ch_map.get(item_ch, "Unknown Channel")
-        msg_id = item.get("id", unique_k)
-        base_title = clean_filename(item.get("title", f"post_{msg_id}"))
-        post_dir = os.path.join(BASE_DIR, clean_filename(ch_name), f"{msg_id}_{base_title}")
-        is_dl = False
-        count = 0
-        try:
-            if os.path.exists(post_dir):
-                files = [f for f in os.listdir(post_dir) if f.endswith(".mp4") and os.path.getsize(os.path.join(post_dir, f)) > 1000]
-                count = len(files)
-                if count > 0: is_dl = True
-        except Exception:
-            pass
-            
-        item["is_downloaded"] = is_dl
-        item["local_count"] = count
+        # Cek status instan dari data cloud tanpa scan disk/folder lambat
+        has_cloud_db = bool(item.get("telegram_cloud_files")) or bool(item.get("direct_tg_video"))
+        item["is_downloaded"] = has_cloud_db
+        item["local_count"] = len(item.get("telegram_cloud_files", {})) if has_cloud_db else 0
         result[unique_k] = item
 
     return result
