@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
 import ssl
@@ -160,7 +161,7 @@ def resolve_vski(url):
     try:
         if "filecoster.com/d/" in url or "filecoster.com/e/" in url:
             single = resolve_filecoster_detail(url)
-            if single: return [single]
+            return [single] if single else []
 
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=12) as res:
@@ -169,12 +170,11 @@ def resolve_vski(url):
         m_fc = re.search(r'https://filecoster\.com/[^\s"\'<>]+', html)
         if m_fc: return resolve_vski(m_fc.group(0))
 
-        results = []
-        detail_ids = list(set(re.findall(r'/(?:d|e)/([a-zA-Z0-9_-]+)', html)))
+        detail_ids = list(dict.fromkeys(re.findall(r'/(?:d|e)/([a-zA-Z0-9_-]+)', html)))
         if detail_ids:
-            for d_id in detail_ids:
-                single = resolve_filecoster_detail(f"https://filecoster.com/d/{d_id}") or resolve_filecoster_detail(f"https://filecoster.com/e/{d_id}")
-                if single: results.append(single)
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = [ex.submit(resolve_filecoster_detail, f"https://filecoster.com/e/{d_id}") for d_id in detail_ids]
+                results = [f.result() for f in futs if f.result()]
             return results
         if "/d/" in url or "/e/" in url:
             single = resolve_filecoster_detail(url)

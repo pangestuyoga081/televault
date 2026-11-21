@@ -364,12 +364,7 @@ def resolve_filecoster_detail(detail_url):
             stream_direct = m_source.group(1)
             title = m_title.group(1) if m_title else "video"
             sz_str = "Auto"
-            try:
-                head_req = urllib.request.Request(stream_direct, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://filecoster.com/"}, method="HEAD")
-                with urllib.request.urlopen(head_req, context=ssl_ctx, timeout=8) as h_res:
-                    clen = int(h_res.headers.get("Content-Length", 0))
-                    if clen > 0: sz_str = f"{clen/(1024*1024):.1f} MB"
-            except Exception: pass
+
 
             return {
                 "type": "direct_mp4", 
@@ -386,26 +381,23 @@ def resolve_filecoster_detail(detail_url):
 
 def resolve_vski_or_filecoster(url):
     try:
-        # Jika link berbentuk /e/ atau /d/ langsung ke filecoster
         if "filecoster.com/d/" in url or "filecoster.com/e/" in url:
             single = resolve_filecoster_detail(url)
-            if single: return [single]
+            return [single] if single else []
 
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=12) as res:
             html = res.read().decode("utf-8", errors="ignore")
         
-        # Deteksi redirect filecoster (dari tribunvideo, plav.ink, vdko, vski, dll)
         m_fc = re.search(r'https://filecoster\.com/[^\s"\'<>]+', html)
         if m_fc:
             return resolve_vski_or_filecoster(m_fc.group(0))
         
-        results = []
-        detail_ids = list(set(re.findall(r'/(?:d|e)/([a-zA-Z0-9_-]+)', html)))
+        detail_ids = list(dict.fromkeys(re.findall(r'/(?:d|e)/([a-zA-Z0-9_-]+)', html)))
         if detail_ids:
-            for d_id in detail_ids:
-                single = resolve_filecoster_detail(f"https://filecoster.com/d/{d_id}") or resolve_filecoster_detail(f"https://filecoster.com/e/{d_id}")
-                if single: results.append(single)
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futs = [ex.submit(resolve_filecoster_detail, f"https://filecoster.com/e/{d_id}") for d_id in detail_ids]
+                results = [f.result() for f in futs if f.result()]
             return results
         
         if "/d/" in url or "/e/" in url:

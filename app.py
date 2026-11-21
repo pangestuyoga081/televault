@@ -3,11 +3,11 @@ import subprocess
 from server import app as fastapi_app
 import gradio as gr
 
-# Jalankan Auto-Crawler Telegram di Background
+# Jalankan Realtime Watcher & Auto-Resolver Telegram di Background
 try:
-    subprocess.Popen(["python", "full_crawler.py"])
+    subprocess.Popen(["python", "sync_manager.py"])
 except Exception as e:
-    print(f"Crawler background note: {e}")
+    print(f"Sync Manager background note: {e}")
 
 # Definisikan UI TeleVault
 with gr.Blocks(title="TeleVault Cloud") as demo:
